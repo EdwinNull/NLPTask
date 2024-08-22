@@ -1,172 +1,145 @@
+import string
+
 import numpy as np
 import pandas as pd
 import random
 from tqdm import tqdm
 
 
-train_set = 'F:/sentiment-analysis-on-movie-reviews/train.tsv/train.tsv'
-test_set = 'F:/sentiment-analysis-on-movie-reviews/test.tsv/test.tsv'
-df = pd.read_csv(train_set,sep='\t')
-df_test = pd.read_csv(test_set,sep='\t')
-# df.head(100)
+# logistic regression class
+class LogisticRegression:
+    def __init__(self, learning_rate=0.05, num_iter=100):
+        self.learning_rate = learning_rate
+        self.num_iter = num_iter
+        self.weights = None
+        self.bias = None
+
+    def fit(self, X, y):
+        m, n = X.shape
+        num_classes = len(np.unique(y))
+        self.weights = np.zeros((n, num_classes))
+        self.bias = np.zeros(num_classes)
+        y_onehot = np.eye(num_classes, dtype=int)[y.astype(int)]
+
+        for i in range(self.num_iter):
+            z = np.dot(X, self.weights) + self.bias
+            y_pred = softmax(z)
+            loss = cross_entropy_loss(y_onehot, y_pred)
+            dw, db = calculate_grad(X, y_onehot, y_pred)
+            self.weights -= self.learning_rate * dw
+            self.bias -= self.learning_rate * db
+            if i % 10 == 0:
+                print(f'Iteration: {i}, Loss: {loss:.4f}')
+
+    def predict(self, X):
+        z = np.dot(X, self.weights) + self.bias
+        y_pred = softmax(z)
+        return np.argmax(y_pred, axis=1)
 
 
-# 词袋特征提取
-def get_bow_token(data):
-    feature_set = set()
-    for row in data:
-        token_list = row.split()
-        for token in token_list:
-            feature_set.add(token)
-    return feature_set
-# 获取训练集中的BOW特征，并返回一个特征矩阵
+# use N-gram method to extract features
+# build ngram vocabulary
+def build_ngram_vocab(data, n):
+    ngram_vocab = {}
+    index = 0
+    for text, label in data:
+        # convert text to lower case and remove punctuation
+        text = text.lower().translate(str.maketrans('', '', string.punctuation))
+        tokens = text.split()
+
+        # go through vocabulary and build ngram
+        for i in range(len(tokens) - n + 1):
+            # build ngram tuple
+            ngram = tuple(tokens[i:i + n])
+            if ngram not in ngram_vocab:
+                # if ngram not in vocabulary, add it to vocabulary and assign an index
+                ngram_vocab[ngram] = index
+                index += 1
+    return ngram_vocab
 
 
-def get_bow_feature(data,feature_set):
-    feature_size = len(feature_set)
-    feature_list = np.zeros((data.shape[0], feature_size),dtype=np.int8)
-    feature_map = dict(zip(feature_set,range(feature_size)))
-    for index in range(data.shape[0]):
-        token_list = str(data[index]).split()
-        for token in token_list:
-            if token in feature_set:
-                feature_index = feature_map[token]
-                feature_list[index, feature_index] += 1
-    return feature_list
+def text_to_ngram_vector(text, ngram_vocab, n):
+    vector = np.zeros(len(ngram_vocab))
+    tokens = text.lower().split()
+    for i in range(len(tokens) - n + 1):
+        ngram = tuple(tokens[i:i + n])
+        if ngram in ngram_vocab:
+            vector[ngram_vocab[ngram]] += 1
+    return vector
 
 
-# 同上，对ngram进行相似的操作，获取ngram特征（考虑性能等问题，先采用2gram）
-def get_ngram_token(data,ngram=2):
-    feature_set=set()
-    for row in data:
-        token_list=row.split()
-        for token in token_list:
-            for i in range(len(token)-ngram):
-                feature_set.add(token[i:i+ngram])
-    return feature_set
+# data process
+def data_process(file_path, n, sample_rate=0.1):
+    df = pd.read_csv(file_path, sep='\t')
+    # sample data
+    df = df.sample(frac=sample_rate, random_state=42)
+    # transform in appropriate form
+    data = [(row['Phrase'], row['Sentiment']) for _, row in df.iterrows()]
+    ngram_vocab = build_ngram_vocab(data, n)
+    process_bar = tqdm(total=len(data), desc='Processing data', unit=" samples")
+    # transform text to ngram vector
+    X = np.empty((len(data), len(ngram_vocab)), dtype=np.int16)
+    y = np.empty((len(data)), dtype=np.int16)
+    for i, (text, label) in enumerate(data):
+        ngram_vector = text_to_ngram_vector(text, ngram_vocab, n)
+        X[i] = ngram_vector
+        y[i] = label
+        process_bar.update(1)
+    process_bar.close()
+    return X, y, ngram_vocab
 
 
-def get_ngram_feature(data,feature_set,ngram=2):
-    feature_size=len(feature_set)
-    feature_list=np.zeros((data.shape[0],feature_size),dtype=np.int16)
-    feature_map=dict(zip(feature_set,range(feature_size)))
-    for index in range(data.shape[0]):
-        token_list=str(data[index]).split()
-        for token in token_list:
-            for i in range(len(token)-ngram):
-                gram=token[i:i+ngram]
-                if gram in feature_set:
-                    feature_index=feature_map[gram]
-                    feature_list[index,feature_index]+=1
-    return feature_list
+# split data into train and test set
+def train_test_split(X, y, test_size=0.2, random_state=None):
+    if random_state is not None:
+        np.random.seed(random_state)
+    # get sample number of test set
+    num_samples = X.shape[0]
+    num_test_samples = int(num_samples * test_size)
+    # random generate index
+    indices = np.random.permutation(num_samples)
+
+    test_indices = indices[:num_test_samples]
+    train_indices = indices[num_test_samples:]
+    X_train, y_train = X[train_indices], y[train_indices]
+    X_test, y_test = X[test_indices], y[test_indices]
+
+    return X_train, y_train, X_test, y_test
 
 
-# 根据参数的值来提取特征
-def create_feature(ngram=2,analyzer='word'):
-    if analyzer=='word':
-        feature_set=get_bow_token(data=df['Phrase'].to_numpy())
-        x=get_bow_feature(data=df['Phrase'].to_numpy(),feature_set=feature_set)
-        test_x = get_bow_feature(data=df_test['Phrase'].to_numpy(),feature_set=feature_set)
-    if analyzer=='char':
-        feature_set = get_ngram_token(data=df['Phrase'].to_numpy(),ngram=ngram)
-        x=get_ngram_feature(data=df['Phrase'].to_numpy(),feature_set=feature_set,ngram=ngram)
-        test_x = get_ngram_feature(data=df_test['Phrase'].to_numpy(),feature_set=feature_set,ngram=ngram)
-    return feature_set,x,test_x
+# softmax function
+def softmax(array):
+    exp_array = np.exp(array - np.max(array, axis=1, keepdims=True))
+    return exp_array / np.sum(exp_array, axis=1, keepdims=True)
 
 
-# 分割数据集
-def train_test_split(x,y,test_rate):
-    x_size = x.shape[0]
-    train_size = int(x_size*(1-test_rate))
-    index = [i for i in range(x_size)]
-    # 随机分割,获得训练集和验证集
-    random.shuffle(index)
-    train_x = x[index][0:train_size]
-    train_y = y[index][0:train_size]
-    val_x = x[index][train_size+1:-1]
-    val_y = y[index][train_size+1:-1]
-    return train_x,val_x,train_y,val_y
+# cross-entropy loss function
+def cross_entropy_loss(y_true, y_pred):
+    epsilon = 1e-7
+    y_pred = np.clip(y_pred, epsilon, 1 - epsilon)
+    loss = -np.sum(np.sum(y_true * np.log(y_pred), axis=1))
+    return loss
 
 
-# 矩阵乘法加速
-def train_faster(train_x, train_y, val_x, val_y, batchsize=32, lr=1e0, epoch_number=100):
-    iter_number = train_x.shape[0] // batchsize
-    iter_remain = train_x.shape[0] % batchsize
-    weight = np.zeros((train_x.shape[1], class_number))
-    # 不同初始值的影响
-    # weight=np.random.normal(0,1,[train_X.shape[1],class_number])
-    train_loss_list = []
-    test_loss_list = []
-    for i in range(epoch_number):
-        train_loss = 0
-        test_loss = 0
-        for j in tqdm(range(iter_number)):
-            train_data = train_x[j * batchsize:j * batchsize + batchsize]
-            y_train = train_y[j * batchsize:j * batchsize + batchsize]
-            y = np.exp(train_data.dot(weight))
-            y_hat = np.divide(y.T, np.sum(y, axis=1)).T
-            train_loss += (-1 / train_x.shape[0]) * np.sum(np.multiply(y_train, np.log10(y_hat)))
-            # 每个batch权重更新一次
-            weight += (lr / batchsize) * train_data.T.dot(y_train - y_hat)
-
-        y = np.exp(val_x.dot(weight))
-        y_hat = np.divide(y.T, np.sum(y, axis=1)).T
-        test_loss = (-1 / val_x.shape[0]) * np.sum(np.multiply(val_y, np.log10(y_hat)))
-        # print('train_loss:',train_loss," test_loss:",test_loss)
-        train_loss_list.append(train_loss)
-        test_loss_list.append(test_loss)
-
-    return train_loss_list, test_loss_list, weight
+# grad calculate function
+def calculate_grad(X, y_true, y_pred):
+    m = y_true.shape[0]
+    grad = np.dot(X.T, (y_pred - y_true)) / m
+    return grad, np.mean(y_pred - y_true, axis=0)
+    # return grad and loss
 
 
-class_number = 5
-y = df['Sentiment'].to_numpy()
-y_onehot = np.zeros((y.shape[0], class_number), dtype=np.int8)
-for i in range(y.shape[0]):
-    y_onehot[i, y[i]] += 1
-parameter_list = [
-    {'ngram': 2, 'analyzer': 'word', 'batchsize': 32, "lr": 1e0, 'epoch_number': 20, 'test_rate': 0.2},
-    {'ngram': 2, 'analyzer': 'char', 'batchsize': 32, "lr": 1e0, 'epoch_number': 20, 'test_rate': 0.2},
-    {'ngram': 3, 'analyzer': 'char', 'batchsize': 32, "lr": 1e0, 'epoch_number': 20, 'test_rate': 0.2},
-    {'ngram': 2, 'analyzer': 'word', 'batchsize': 8, "lr": 1e0, 'epoch_number': 20, 'test_rate': 0.2},
-    {'ngram': 2, 'analyzer': 'word', 'batchsize': 128, "lr": 1e0, 'epoch_number': 20, 'test_rate': 0.2},
-    {'ngram': 2, 'analyzer': 'word', 'batchsize': 32, "lr": 1e1, 'epoch_number': 20, 'test_rate': 0.2},
-    {'ngram': 2, 'analyzer': 'word', 'batchsize': 8, "lr": 1e0, 'epoch_number': 10, 'test_rate': 0.2},
-
-]
+def train():
+    file_path = "/home/edwin/Downloads/train.tsv"
+    n = 2
+    X, y, _ = data_process(file_path, n)
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
+    model = LogisticRegression(learning_rate=0.05, num_iter=100)
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_val)
+    accuracy = np.mean(y_pred == y_val)
+    print(f'Accuracy: {accuracy:.4f}')
 
 
-def flow(parameter_list):
-    for parameter_dict in parameter_list:
-        ngram = parameter_dict['ngram']
-        analyzer = parameter_dict['analyzer']
-        batchsize = parameter_dict['batchsize']
-        lr = parameter_dict['lr']
-        epoch_number = parameter_dict['epoch_number']
-        test_rate = parameter_dict['test_rate']
-
-        feature_set, x, test_x = create_feature(ngram=ngram, analyzer=analyzer)
-
-        train_x, val_x, train_y, val_y = train_test_split(x, y_onehot, test_rate=test_rate)
-        train_loss_list, test_loss_list, weight = train_faster(train_x=train_x, train_y=train_y, val_x=val_x,
-                                                               val_y=val_y, batchsize=batchsize, lr=lr,
-                                                               epoch_number=epoch_number)
-
-        y_temp = np.exp(val_x.dot(weight))
-        y_temp = np.divide(y_temp.T, np.sum(y_temp, axis=1)).T
-        y_predict = np.array([np.argmax(i) for i in y_temp])
-        y_val = np.array([np.argmax(i) for i in val_y])
-
-        acc = np.sum(y_predict.astype('int') == y_val.astype('int')) / y_val.shape[0]
-        parameter_dict['acc'] = '%.4f' % acc
-        print('acc:', acc)
-
-        parameter_dict['best_train_loss'] = '%.4f' % np.min(train_loss_list)
-        parameter_dict['best_test_loss'] = '%.4f' % np.min(test_loss_list)
-
-        print('train_loss:', parameter_dict['best_train_loss'], " test_loss:", parameter_dict['best_test_loss'])
-
-    return parameter_list
-
-
-parameter_list = flow(parameter_list)
+if __name__ == '__main__':
+    train()
