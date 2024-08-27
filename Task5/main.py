@@ -6,10 +6,10 @@ import math
 import torch.nn.functional as F
 from torch import optim, device
 
-from nn import Language
+from nn import Poem
 from feature import get_batch, Word_Embedding
 
-with open("C:/Users/wz367/Downloads/poetryFromTang.txt", 'rb') as f:
+with open("./poetryFromTang.txt", 'rb') as f:
     temp = f.readlines()
 
 a = Word_Embedding(temp)
@@ -42,7 +42,7 @@ strategies = ['lstm', 'gru']
 train_loss_records = list()
 models = list()
 for i in range(2):
-    model = Language(50, len(a.word_dict), 50, a.tag_dict, a.word_dict, strategy=strategies[i])
+    model = Poem(50, len(a.word_dict), 50, a.tag_dict, a.word_dict, strategy=strategies[i])
     print(len(model.word_to_num))
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     loss_fun = F.cross_entropy
@@ -71,9 +71,13 @@ for i in range(2):
     perp = calculate_perplexity(model, train, F.cross_entropy)
     print("Perplexity:", perp)
 
-model = models[0]
-with open('model.pkl', 'wb') as f:
-    pickle.dump(model, f)
+model_lstm = models[0]
+model_gru = models[1]
+with open('model_lstm.pkl', 'wb') as f:
+    pickle.dump(model_lstm, f)
+with open('model_gru.pkl', 'wb') as f:
+    pickle.dump(model_gru, f)
+
 
 
 

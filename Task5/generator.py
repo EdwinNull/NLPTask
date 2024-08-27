@@ -12,8 +12,13 @@ def cat_poem(l):
 string = ""
 sentence_len = 7
 sentence_num = 4
-with open('model.pkl', 'rb') as f:
-    model = pickle.load(f)
+model_choice = int(input("请输入模型类别(1为LSTM模型，2为GRU模型)："))
+if model_choice == 1:
+    with open('model_lstm.pkl', 'rb') as f:
+        model = pickle.load(f)
+elif model_choice == 2:
+    with open('model_lstm.pkl', 'rb') as f:
+        model = pickle.load(f)
 choice = int(input("请输入生成模式：(1表示随机诗歌，2表示藏头诗)"))
 if choice == 1:
     sentence_len = int(input("请输入生成诗歌的句子长度："))

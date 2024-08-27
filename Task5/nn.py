@@ -2,10 +2,10 @@ import torch.nn as nn
 import torch
 
 
-class Language(nn.Module):
+class Poem(nn.Module):
     def __init__(self, len_feature, len_words, len_hidden, num_to_word, word_to_num, strategy='lstm', pad_id=0,
                  start_id=1, end_id=2, drop_out=0.5):
-        super(Language, self).__init__()
+        super(Poem, self).__init__()
         self.pad_id = pad_id
         self.start_id = start_id
         self.end_id = end_id
